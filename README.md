@@ -15,7 +15,7 @@ Your task is to:
 3. Fill in the missing implementation blocks from `policies/baseline/modeling.py`. (It's indicated as `TODO`)
 4. Train a model that successfully completes the full task
 
-At the end, you must submit your trained model.
+At the end, you must submit your trained model. Compress the files in `ckpt`.
 
 ## What is provided?
 This repository includes:
