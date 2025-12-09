@@ -26,6 +26,16 @@ from .configuration import BaselineConfig
 from transformers import AutoImageProcessor, AutoModel
 from lerobot.common.policies.normalize import Normalize, Unnormalize
 
+from safetensors.torch import save_model as save_model_as_safetensor
+from pathlib import Path
+from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
+
+import os
+from pathlib import Path
+from typing import Type, TypeVar
+from lerobot.configs.policies import PreTrainedConfig
+
+T = TypeVar("T", bound="PreTrainedPolicy")
 
 class BaselinePolicy(PreTrainedPolicy):
     """
@@ -121,6 +131,79 @@ class BaselinePolicy(PreTrainedPolicy):
         loss = l1_loss
         return loss, loss_dict
 
+    def _save_pretrained_as_jit(self, save_directory: Path):
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+
+        self.config._save_pretrained(save_directory)
+
+        model_to_save = self.module if hasattr(self, "module") else self
+        model_to_save.eval()
+
+        # safetensors
+        save_model_as_safetensor(
+            model_to_save,
+            str(save_directory / SAFETENSORS_SINGLE_FILE),
+        )
+
+
+        mlp = self.model.mlp
+        # save to jit
+        traced_script_module = torch.jit.trace(mlp, torch.randn(1, self.model.input_dim).to(self.config.device))
+        traced_script_module.save(save_directory / "model_jit.pt")
+
+
+    @classmethod
+    def from_pretrained_jit(
+        cls: Type[T],
+        pretrained_name_or_path: str | Path,
+        *,
+        config: PreTrainedConfig | None = None,
+        force_download: bool = False,
+        resume_download: bool | None = None,
+        proxies: dict | None = None,
+        token: str | bool | None = None,
+        cache_dir: str | Path | None = None,
+        local_files_only: bool = False,
+        revision: str | None = None,
+        strict: bool = False,
+        **kwargs,
+    ) -> T:
+        """
+        The policy is set in evaluation mode by default using `policy.eval()` (dropout modules are
+        deactivated). To train it, you should first set it back in training mode with `policy.train()`.
+        """
+        if config is None:
+            config = PreTrainedConfig.from_pretrained(
+                pretrained_name_or_path=pretrained_name_or_path,
+                force_download=force_download,
+                resume_download=resume_download,
+                proxies=proxies,
+                token=token,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+                revision=revision,
+                **kwargs,
+            )
+        model_id = str(pretrained_name_or_path)
+        print(model_id)
+        instance = cls(config, **kwargs)
+        if os.path.isdir(model_id):
+            print("Loading weights from local directory")
+            model_file = os.path.join(model_id, "model_jit.pt")
+
+            jit_model = torch.jit.load(model_file, map_location=config.device)
+            jit_model.eval()
+
+            # ⬇️ 기존 python 모델 대신 TorchScript model 주입
+
+            policy = instance
+            policy.model.mlp = jit_model
+
+        policy.to(config.device)
+        policy.eval()
+        return policy
+
 
 class BaselineModel(nn.Module):
     def __init__(self, config: BaselineConfig):
@@ -155,6 +238,8 @@ class BaselineModel(nn.Module):
             input_dim += self.config.robot_state_feature.shape[0]
         if self.config.env_state_feature:
             input_dim += self.config.env_state_feature.shape[0]
+
+        self.input_dim = input_dim
 
         # TODO: Define self.mlp here
         # self.mlp = None
