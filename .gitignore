@@ -2,3 +2,4 @@
 __pycache__/
 dataset/*
 4.eval.ipynb
+ckpt/*
