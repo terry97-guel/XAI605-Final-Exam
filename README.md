@@ -84,6 +84,7 @@ Based on this configuration, it will transform the actions into the action_type 
 
 ### 3.train.ipynb
 Train simple MLP models with dataset.
+IMPORTANT: Please make sure that the last code block for sanity checking works.
 
 ### Expectected Results
 <img src="./media/baseline.gif" width="480" height="360" controls></img>
